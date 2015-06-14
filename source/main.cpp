@@ -2,6 +2,12 @@
 #include "axServer.h"
 #include "axServerCore.h"
 #include "axUtils.h"
+#include "CudaKMean.h"
+
+struct KMeanInfo
+{
+	int nrow, ncol, nCluster;
+};
 
 namespace R
 {
@@ -17,13 +23,16 @@ namespace R
 	protected:
 		virtual std::string ConnectionCallback(ax::Server::Core* server, const int& sock_fd)
 		{
-			int nElement = 0; // Number of elements in the double* array.
+			// int nElement = 0; // Number of elements in the double* array.
+			KMeanInfo kmean_info;
 
 			// Receive a int msg for the amount of element in a double* vector.
-			if(ax::Server::Receive<int>(sock_fd, nElement) <= 0)
+			if(ax::Server::Receive<KMeanInfo>(sock_fd, kmean_info) <= 0)
 			{
 				ax::Error("Error in receive.");
 			}
+
+			int nElement = kmean_info.nrow * kmean_info.ncol; // Number of elements in the double* array.
 
 			const int totalByteToReceive = sizeof(double) * nElement;
 
@@ -42,17 +51,31 @@ namespace R
 
 			} while(total_bytes_receive < totalByteToReceive);
 
-			double* values = (double*)raw_bytes;
+			double* data = (double*)raw_bytes;
 
-			double average = 0.0;
-			for(int i = 0; i < nElement; i++)
-			{
-				average += values[i];
-			}
 
-			ax::Server::Send<double>(sock_fd, average / double(nElement));
 
-			delete[] raw_bytes; 
+
+
+
+			double* answer = new double[kmean_info.ncol * kmean_info.nCluster];
+
+			/////////////
+			int dim = 2;
+			CudaKMean(data, &dim, &kmean_info.nrow, &kmean_info.ncol, &kmean_info.nCluster, answer);
+
+
+			ax::Server::Send<double>(sock_fd, answer, sizeof(double) * kmean_info.ncol * kmean_info.nCluster);
+
+			// double average = 0.0;
+			// for(int i = 0; i < nElement; i++)
+			// {
+			// 	average += values[i];
+			// }
+
+			// ax::Server::Send<double>(sock_fd, average / double(nElement));
+
+			// delete[] raw_bytes; 
 
 			return "Nothing";
 		}
